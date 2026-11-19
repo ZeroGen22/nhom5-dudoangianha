@@ -8,7 +8,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 
 st.set_page_config(
-    page_title="Định giá & Phân khúc BĐS King County - Nhóm 5",
+    page_title="Dự đoán giá nhà King County - Nhóm 5",
     page_icon="🏠",
     layout="wide"
 )
@@ -23,7 +23,7 @@ def load_and_train():
     df_train = pd.read_csv('Nhom5_dulieugianha_train.csv')
     df_test = pd.read_csv('Nhom5_dulieugianha_test.csv')
 
-    # 1. Huấn luyện mô hình Dự đoán giá (Linear Regression)
+    # Đủ 28 thuộc tính đầu vào X khớp chính xác Bảng 3.4.1 trong Báo cáo
     features = [
         'sqft_living', 'sqft_lot', 'bedrooms', 'bathrooms', 'floors', 'waterfront',
         'view', 'condition', 'grade', 'sqft_basement', 'yr_built', 'zipcode',
@@ -36,42 +36,45 @@ def load_and_train():
     model_lr = LinearRegression()
     model_lr.fit(X_train_clean, df_train['log_price'])
 
-    # 2. Huấn luyện mô hình Phân cụm phân khúc (K-Means k=3)
-    cluster_cols = ['price', 'sqft_living', 'grade', 'house_age', 'bedrooms', 'bathrooms']
+    # K-Means trên toàn bộ 29 cột số (trừ zipcode) khớp Mục 3.4.2 & 4.2
+    numeric_cols = df_train.select_dtypes(include=[np.number]).columns.tolist()
+    for col in ['id', 'date', 'zipcode']:
+        if col in numeric_cols:
+            numeric_cols.remove(col)
+
+    X_kmeans_raw = df_train[numeric_cols].fillna(df_train[numeric_cols].median())
     scaler = StandardScaler()
-    X_cluster_scaled = scaler.fit_transform(df_train[cluster_cols])
-    kmeans = KMeans(n_clusters=3, init='k-means++', random_state=42, n_init=10)
-    df_train['Cluster'] = kmeans.fit_predict(X_cluster_scaled)
+    X_scaled = scaler.fit_transform(X_kmeans_raw)
+    kmeans_model = KMeans(n_clusters=3, init='k-means++', random_state=42, n_init=10)
+    df_train['Cluster'] = kmeans_model.fit_predict(X_scaled)
 
-    # Tự động gán nhãn phân khúc theo mức giá trung bình của từng cụm
-    cluster_means = df_train.groupby('Cluster')['price'].mean().sort_values()
-    sorted_ids = cluster_means.index.tolist()
-    cluster_labels = {
-        sorted_ids[0]: ("Phân khúc Bình dân / Nhà cũ diện tích nhỏ", cluster_means.iloc[0]),
-        sorted_ids[1]: ("Phân khúc Tầm trung / Nhà mới hiện đại", cluster_means.iloc[1]),
-        sorted_ids[2]: ("Phân khúc Cao cấp / Biệt thự rộng rãi", cluster_means.iloc[2])
+    cluster_means = df_train.groupby('Cluster')['price'].mean()
+    cluster_names = {
+        0: f"Cụm 0 – Nhà cao cấp, rộng rãi (Giá TB cụm: ${cluster_means[0]:,.0f} USD)",
+        1: f"Cụm 1 – Nhà mới, tầm trung (Giá TB cụm: ${cluster_means[1]:,.0f} USD)",
+        2: f"Cụm 2 – Nhà cũ, nhỏ, giá thấp (Giá TB cụm: ${cluster_means[2]:,.0f} USD)"
     }
-    
-    return df_test, features, imputer, model_lr, cluster_cols, scaler, kmeans, cluster_labels
 
-df_test, features, imputer, model_lr, cluster_cols, scaler, kmeans, cluster_labels = load_and_train()
+    return df_test, features, imputer, model_lr, numeric_cols, scaler, kmeans_model, cluster_names
 
-st.title("🏠 HỆ THỐNG ĐỊNH GIÁ & PHÂN KHÚC BẤT ĐỘNG SẢN KING COUNTY - NHÓM 5")
+df_test, features, imputer, model_lr, numeric_cols, scaler, kmeans_model, cluster_names = load_and_train()
+
+st.title("🏠 ỨNG DỤNG DỰ ĐOÁN GIÁ BẤT ĐỘNG SẢN KING COUNTY - NHÓM 5")
 st.markdown(
-    "**Thuật toán 1:** Linear Regression ($R^2 = 0.8101$) | "
-    "**Thuật toán 2:** K-Means Clustering ($K = 3$ phân khúc) | "
-    "**Nguồn dữ liệu:** Kaggle King County (`Nhom5_DuDoanGiaNha_test`)"
+    "**Thuật toán 1:** Linear Regression (28 biến đầu vào X, $R^2 = 0.8101$, MAE = `$97,650.62`) | "
+    "**Thuật toán 2:** K-Means Clustering ($K = 3$ cụm) | "
+    "**Nguồn dữ liệu:** Kaggle King County"
 )
 st.divider()
 
 tab1, tab2 = st.tabs([
     "📊 1. Kiểm thử & Đối chiếu trên File Test", 
-    "✍️ 2. Định giá & Phân loại phân khúc nhà mới"
+    "✍️ 2. Nhập đầy đủ 28 thuộc tính (X) để dự đoán"
 ])
 
 # ================= TAB 1: KIỂM THỬ FILE TEST =================
 with tab1:
-    st.subheader("Đối chiếu trực tiếp giữa Giá thực tế và Giá mô hình dự đoán trên tập Test")
+    st.subheader("Đối chiếu trực tiếp kết quả trên tập kiểm thử (20% Test - 4.324 mẫu)")
     row_index = st.slider(
         "Chọn chỉ số dòng trong File Test (0 - 4323):", 
         min_value=0, max_value=len(df_test)-1, value=0, step=1
@@ -80,105 +83,120 @@ with tab1:
     sample = df_test.iloc[[row_index]]
     X_sample = pd.DataFrame(imputer.transform(sample[features]), columns=features)
     
-    pred_price = float(np.exp(model_lr.predict(X_sample)[0]))
+    pred_log = float(model_lr.predict(X_sample)[0])
+    pred_price = float(np.exp(pred_log))
     real_price = float(sample['price'].values[0])
     diff = abs(real_price - pred_price)
     error_pct = (diff / real_price) * 100
 
-    # Xác định phân khúc K-means cho mẫu Test
-    sample_cluster_input = pd.DataFrame([[
-        pred_price, sample['sqft_living'].values[0], sample['grade'].values[0],
-        sample['house_age'].values[0], sample['bedrooms'].values[0], sample['bathrooms'].values[0]
-    ]], columns=cluster_cols)
-    cid = int(kmeans.predict(scaler.transform(sample_cluster_input))[0])
-    seg_name, seg_avg = cluster_labels[cid]
+    sample_km = sample.copy()
+    sample_km['price'] = pred_price
+    sample_km['log_price'] = pred_log
+    cid = int(kmeans_model.predict(scaler.transform(sample_km[numeric_cols]))[0])
 
     col1, col2, col3 = st.columns(3)
     col1.metric("💰 Giá bán THỰC TẾ (File Test)", f"${real_price:,.2f} USD")
     col2.metric("🤖 Giá bán DỰ ĐOÁN (Linear Regression)", f"${pred_price:,.2f} USD")
-    col3.metric("📉 Chênh lệch & Sai số", f"${diff:,.2f} USD", f"{error_pct:.2f}%", delta_color="inverse")
+    col3.metric("📉 Sai số tuyệt đối", f"${diff:,.2f} USD", f"{error_pct:.2f}%", delta_color="inverse")
 
-    st.info(f"🏷️ **Xếp loại phân khúc (K-Means):** Căn nhà thuộc **{seg_name}** (Mức giá trung bình phân khúc này: **${seg_avg:,.0f} USD**)")
+    st.info(f"🏷️ **Kết quả Phân cụm K-Means (Mục 4.2):** {cluster_names[cid]}")
 
-    sqft_liv_real = np.expm1(sample['sqft_living'].values[0])
-    sqft_lot_real = np.expm1(sample['sqft_lot'].values[0])
-    
-    st.markdown("**Thông tin chi tiết căn nhà trích xuất từ tập Test:**")
-    info_df = pd.DataFrame({
-        "Thuộc tính": ["Diện tích sử dụng", "Diện tích đất", "Phòng ngủ", "Phòng tắm", "Số tầng", "Chất lượng (Grade)", "Năm xây dựng", "Mã vùng (Zipcode)"],
-        "Giá trị thực tế": [
-            f"{sqft_liv_real:,.0f} sqft", f"{sqft_lot_real:,.0f} sqft",
-            int(sample['bedrooms'].values[0]), float(sample['bathrooms'].values[0]),
-            float(sample['floors'].values[0]), f"{int(sample['grade'].values[0])}/13",
-            int(sample['yr_built'].values[0]), int(sample['zipcode'].values[0])
-        ]
-    })
-    st.table(info_df)
+    st.markdown("**Toàn bộ 28 giá trị thuộc tính đầu vào (X) của mẫu đang chọn trong File Test:**")
+    st.dataframe(sample[features], use_container_width=True)
 
-# ================= TAB 2: NHẬP DỮ LIỆU MỚI =================
+# ================= TAB 2: NHẬP ĐẦY ĐỦ 28 BIẾN X =================
 with tab2:
-    st.subheader("Nhập thông số căn nhà để định giá & nhận diện phân khúc thị trường")
+    st.subheader("Nhập đầy đủ 28 thuộc tính đầu vào (X) khớp Bảng 3.4.1 trong Báo cáo")
     
     c1, c2, c3, c4 = st.columns(4)
+    
+    # Cột 1: 7 thuộc tính (1 -> 7)
     with c1:
-        sqft_living = st.number_input("Diện tích sử dụng (sqft)", min_value=100, value=1910, step=50)
-        sqft_lot = st.number_input("Diện tích đất (sqft)", min_value=200, value=7620, step=100)
-        bedrooms = st.slider("Số phòng ngủ", 1, 10, 3)
-        bathrooms = st.slider("Số phòng tắm", 0.5, 6.0, 2.25, step=0.25)
-        floors = st.slider("Số tầng", 1.0, 3.5, 1.5, step=0.5)
+        st.markdown("**Nhóm 1: Diện tích & Cấu trúc (1–7)**")
+        sqft_living = st.number_input("1. sqft_living (DT sử dụng - sqft)", min_value=100, value=1910, step=50)
+        sqft_lot = st.number_input("2. sqft_lot (DT đất - sqft)", min_value=200, value=7620, step=100)
+        bedrooms = st.number_input("3. bedrooms (Số phòng ngủ)", min_value=1, max_value=15, value=3, step=1)
+        bathrooms = st.number_input("4. bathrooms (Số phòng tắm)", min_value=0.5, max_value=10.0, value=2.25, step=0.25)
+        floors = st.number_input("5. floors (Số tầng)", min_value=1.0, max_value=4.0, value=1.5, step=0.5)
+        waterfront = st.selectbox("6. waterfront (Giáp mặt nước)", options=[0, 1], index=0)
+        view = st.slider("7. view (Tầm nhìn 0–4)", 0, 4, 0)
+
+    # Cột 2: 7 thuộc tính (8 -> 14)
     with c2:
-        grade = st.slider("Chất lượng xây dựng Grade (1-13)", 1, 13, 7)
-        condition = st.slider("Tình trạng nhà Condition (1-5)", 1, 5, 3)
-        yr_built = st.number_input("Năm xây dựng", min_value=1900, max_value=2026, value=1975)
-        renovated = st.selectbox("Đã cải tạo chưa?", options=[0, 1], format_func=lambda x: "0 - Chưa cải tạo" if x == 0 else "1 - Đã cải tạo")
-        view = st.slider("Điểm tầm nhìn View (0-4)", 0, 4, 0)
+        st.markdown("**Nhóm 2: Chất lượng & Vị trí (8–14)**")
+        condition = st.slider("8. condition (Tình trạng 1–5)", 1, 5, 3)
+        grade = st.slider("9. grade (Chất lượng xây 1–13)", 1, 13, 7)
+        sqft_basement = st.number_input("10. sqft_basement (DT tầng hầm)", min_value=0, value=0, step=50)
+        yr_built = st.number_input("11. yr_built (Năm xây dựng)", min_value=1900, max_value=2026, value=1975, step=1)
+        zipcode = st.number_input("12. zipcode (Mã bưu chính)", value=98065, step=1)
+        lat = st.number_input("13. lat (Vĩ độ)", value=47.5714, format="%.4f")
+        long = st.number_input("14. long (Kinh độ)", value=-122.2310, format="%.4f")
+
+    # Cột 3: 7 thuộc tính (15 -> 21)
     with c3:
-        zipcode = st.number_input("Mã bưu chính (Zipcode)", value=98065)
-        lat = st.number_input("Vĩ độ (Lat)", value=47.5714, format="%.4f")
-        long = st.number_input("Kinh độ (Long)", value=-122.2310, format="%.4f")
-        waterfront = st.selectbox("Giáp mặt nước?", options=[0, 1], format_func=lambda x: "0 - Không" if x == 0 else "1 - Có giáp mặt nước")
-        sqft_basement = st.number_input("Diện tích tầng hầm (sqft)", min_value=0, value=0, step=50)
+        st.markdown("**Nhóm 3: Lân cận & Thời gian (15–21)**")
+        sqft_living15 = st.number_input("15. sqft_living15 (DT nhà lân cận)", min_value=100, value=1840, step=50)
+        sqft_lot15 = st.number_input("16. sqft_lot15 (DT đất lân cận)", min_value=200, value=7620, step=100)
+        sale_year = st.number_input("17. sale_year (Năm bán)", min_value=2014, max_value=2026, value=2014, step=1)
+        sale_month = st.slider("18. sale_month (Tháng bán)", 1, 12, 6)
+        sale_days = st.number_input("19. sale_days (Số ngày từ 01/05/2014)", min_value=0, value=168, step=1)
+        house_age = st.number_input("20. house_age (Tuổi căn nhà)", min_value=0, value=40, step=1)
+        renovated = st.selectbox("21. renovated (Đã cải tạo 0/1)", options=[0, 1], index=0)
+
+    # Cột 4: 7 thuộc tính (22 -> 28)
     with c4:
-        sqft_living15 = st.number_input("DT sử dụng TB 15 nhà lân cận", min_value=100, value=1840)
-        sqft_lot15 = st.number_input("DT đất TB 15 nhà lân cận", min_value=200, value=7620)
-        sale_year = st.number_input("Năm giao dịch", min_value=2014, max_value=2026, value=2014)
-        sale_month = st.slider("Tháng giao dịch", 1, 12, 6)
+        st.markdown("**Nhóm 4: Đặc trưng dẫn xuất (22–28)**")
+        last_update_age = st.number_input("22. last_update_age (Tuổi từ lần sửa cuối)", min_value=0, value=37, step=1)
+        has_basement = st.selectbox("23. has_basement (Có tầng hầm 0/1)", options=[0, 1], index=0)
+        dist_center = st.number_input("24. dist_center (Khoảng cách TT - km)", min_value=0.0, value=16.51, format="%.2f")
+        total_rooms = st.number_input("25. total_rooms (Tổng số phòng)", min_value=1.0, value=5.25, step=0.25)
+        living_lot_ratio = st.number_input("26. living_lot_ratio (Tỷ lệ nhà/đất)", min_value=0.0, value=0.25, format="%.3f")
+        living_vs_nbr = st.number_input("27. living_vs_nbr (So sánh DT nhà)", min_value=0.0, value=1.00, format="%.3f")
+        lot_vs_nbr = st.number_input("28. lot_vs_nbr (So sánh DT đất)", min_value=0.0, value=1.00, format="%.3f")
 
-    if st.button("🚀 ĐỊNH GIÁ & PHÂN LOẠI PHÂN KHÚC", type="primary", use_container_width=True):
-        sale_days = (pd.Timestamp(year=int(sale_year), month=int(sale_month), day=15) - pd.Timestamp("2014-05-01")).days
-        house_age = max(0, int(sale_year) - int(yr_built))
-        last_update_age = house_age if renovated == 0 else max(0, house_age // 2)
-        has_basement = 1 if sqft_basement > 0 else 0
-        dist_center = np.sqrt(((lat - 47.6062) * 111) ** 2 + ((long - (-122.3321)) * 75) ** 2)
-        total_rooms = bedrooms + bathrooms
-        living_lot_ratio = sqft_living / max(sqft_lot, 1)
-        living_vs_nbr = sqft_living / max(sqft_living15, 1)
-        lot_vs_nbr = sqft_lot / max(sqft_lot15, 1)
-
+    if st.button("🚀 DỰ ĐOÁN GIÁ NHÀ & PHÂN CỤM (ĐỦ 28 BIẾN X)", type="primary", use_container_width=True):
         row = {
-            'sqft_living': np.log1p(sqft_living), 'sqft_lot': np.log1p(sqft_lot),
-            'bedrooms': bedrooms, 'bathrooms': bathrooms, 'floors': floors,
-            'waterfront': waterfront, 'view': view, 'condition': condition, 'grade': grade,
-            'sqft_basement': np.log1p(sqft_basement), 'yr_built': yr_built, 'zipcode': zipcode,
-            'lat': lat, 'long': long, 'sqft_living15': np.log1p(sqft_living15),
-            'sqft_lot15': np.log1p(sqft_lot15), 'sale_year': sale_year, 'sale_month': sale_month,
-            'sale_days': sale_days, 'house_age': house_age, 'renovated': renovated,
-            'last_update_age': last_update_age, 'has_basement': has_basement,
-            'dist_center': dist_center, 'total_rooms': total_rooms,
-            'living_lot_ratio': living_lot_ratio, 'living_vs_nbr': living_vs_nbr, 'lot_vs_nbr': lot_vs_nbr
+            'sqft_living': np.log1p(sqft_living),
+            'sqft_lot': np.log1p(sqft_lot),
+            'bedrooms': bedrooms,
+            'bathrooms': bathrooms,
+            'floors': floors,
+            'waterfront': waterfront,
+            'view': view,
+            'condition': condition,
+            'grade': grade,
+            'sqft_basement': np.log1p(sqft_basement),
+            'yr_built': yr_built,
+            'zipcode': zipcode,
+            'lat': lat,
+            'long': long,
+            'sqft_living15': np.log1p(sqft_living15),
+            'sqft_lot15': np.log1p(sqft_lot15),
+            'sale_year': sale_year,
+            'sale_month': sale_month,
+            'sale_days': sale_days,
+            'house_age': house_age,
+            'renovated': renovated,
+            'last_update_age': last_update_age,
+            'has_basement': has_basement,
+            'dist_center': dist_center,
+            'total_rooms': total_rooms,
+            'living_lot_ratio': living_lot_ratio,
+            'living_vs_nbr': living_vs_nbr,
+            'lot_vs_nbr': lot_vs_nbr
         }
 
         input_df = pd.DataFrame([row])[features]
         input_imputed = pd.DataFrame(imputer.transform(input_df), columns=features)
-        pred_price = float(np.exp(model_lr.predict(input_imputed)[0]))
+        pred_log = float(model_lr.predict(input_imputed)[0])
+        pred_price = float(np.exp(pred_log))
 
-        # Phân cụm K-means cho căn nhà mới
-        new_cluster_input = pd.DataFrame([[
-            pred_price, np.log1p(sqft_living), grade, house_age, bedrooms, bathrooms
-        ]], columns=cluster_cols)
-        cid = int(kmeans.predict(scaler.transform(new_cluster_input))[0])
-        seg_name, seg_avg = cluster_labels[cid]
+        km_row = row.copy()
+        km_row['price'] = pred_price
+        km_row['log_price'] = pred_log
+        km_df = pd.DataFrame([km_row])[numeric_cols]
+        cid = int(kmeans_model.predict(scaler.transform(km_df))[0])
 
         r1, r2 = st.columns(2)
         r1.success(f"### 💰 GIÁ DỰ ĐOÁN: **${pred_price:,.2f} USD**")
-        r2.info(f"### 🏷️ PHÂN KHÚC: **{seg_name}**\n*(Giá TB phân khúc: ${seg_avg:,.0f} USD)*")
+        r2.info(f"### 🏷️ PHÂN CỤM K-MEANS:\n**{cluster_names[cid]}**")

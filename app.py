@@ -4,15 +4,15 @@ import numpy as np
 import gdown
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
 
-# Cấu hình trang Web
 st.set_page_config(
-    page_title="Dự đoán giá nhà King County - Nhóm 5",
+    page_title="Định giá & Phân khúc BĐS King County - Nhóm 5",
     page_icon="🏠",
     layout="wide"
 )
 
-# Hàm tải dữ liệu và huấn luyện mô hình (Lưu cache để web chạy cực mượt)
 @st.cache_resource
 def load_and_train():
     train_url = 'https://drive.google.com/uc?id=1EqzT0yb1pZBlJHx8x2-VKMcqkGH3KqWo'
@@ -23,6 +23,7 @@ def load_and_train():
     df_train = pd.read_csv('Nhom5_dulieugianha_train.csv')
     df_test = pd.read_csv('Nhom5_dulieugianha_test.csv')
 
+    # 1. Huấn luyện mô hình Dự đoán giá (Linear Regression)
     features = [
         'sqft_living', 'sqft_lot', 'bedrooms', 'bathrooms', 'floors', 'waterfront',
         'view', 'condition', 'grade', 'sqft_basement', 'yr_built', 'zipcode',
@@ -32,51 +33,73 @@ def load_and_train():
     ]
     imputer = SimpleImputer(strategy='median')
     X_train_clean = pd.DataFrame(imputer.fit_transform(df_train[features]), columns=features)
-    model = LinearRegression()
-    model.fit(X_train_clean, df_train['log_price'])
+    model_lr = LinearRegression()
+    model_lr.fit(X_train_clean, df_train['log_price'])
+
+    # 2. Huấn luyện mô hình Phân cụm phân khúc (K-Means k=3)
+    cluster_cols = ['price', 'sqft_living', 'grade', 'house_age', 'bedrooms', 'bathrooms']
+    scaler = StandardScaler()
+    X_cluster_scaled = scaler.fit_transform(df_train[cluster_cols])
+    kmeans = KMeans(n_clusters=3, init='k-means++', random_state=42, n_init=10)
+    df_train['Cluster'] = kmeans.fit_predict(X_cluster_scaled)
+
+    # Tự động gán nhãn phân khúc theo mức giá trung bình của từng cụm
+    cluster_means = df_train.groupby('Cluster')['price'].mean().sort_values()
+    sorted_ids = cluster_means.index.tolist()
+    cluster_labels = {
+        sorted_ids[0]: ("Phân khúc Bình dân / Nhà cũ diện tích nhỏ", cluster_means.iloc[0]),
+        sorted_ids[1]: ("Phân khúc Tầm trung / Nhà mới hiện đại", cluster_means.iloc[1]),
+        sorted_ids[2]: ("Phân khúc Cao cấp / Biệt thự rộng rãi", cluster_means.iloc[2])
+    }
     
-    return df_test, features, imputer, model
+    return df_test, features, imputer, model_lr, cluster_cols, scaler, kmeans, cluster_labels
 
-df_test, features, imputer, model = load_and_train()
+df_test, features, imputer, model_lr, cluster_cols, scaler, kmeans, cluster_labels = load_and_train()
 
-# Tiêu đề chính
-st.title("🏠 ỨNG DỤNG DỰ ĐOÁN GIÁ BẤT ĐỘNG SẢN KING COUNTY - NHÓM 5")
+st.title("🏠 HỆ THỐNG ĐỊNH GIÁ & PHÂN KHÚC BẤT ĐỘNG SẢN KING COUNTY - NHÓM 5")
 st.markdown(
-    "**Thuật toán:** Hồi quy tuyến tính (Linear Regression) | "
-    "**Độ chính xác ($R^2$):** `0.8101` | "
-    "**Nguồn dữ liệu:** House Sales in King County, USA (Kaggle) — Tập kiểm thử `Nhom5_DuDoanGiaNha_test` (4.324 mẫu)"
+    "**Thuật toán 1:** Linear Regression ($R^2 = 0.8101$) | "
+    "**Thuật toán 2:** K-Means Clustering ($K = 3$ phân khúc) | "
+    "**Nguồn dữ liệu:** Kaggle King County (`Nhom5_DuDoanGiaNha_test`)"
 )
 st.divider()
 
-# Chia 2 Tab chức năng
 tab1, tab2 = st.tabs([
     "📊 1. Kiểm thử & Đối chiếu trên File Test", 
-    "✍️ 2. Dự đoán dữ liệu căn nhà mới"
+    "✍️ 2. Định giá & Phân loại phân khúc nhà mới"
 ])
 
 # ================= TAB 1: KIỂM THỬ FILE TEST =================
 with tab1:
     st.subheader("Đối chiếu trực tiếp giữa Giá thực tế và Giá mô hình dự đoán trên tập Test")
     row_index = st.slider(
-        "Chọn chỉ số dòng trong File Test (từ dòng 0 đến 4323):", 
+        "Chọn chỉ số dòng trong File Test (0 - 4323):", 
         min_value=0, max_value=len(df_test)-1, value=0, step=1
     )
     
     sample = df_test.iloc[[row_index]]
     X_sample = pd.DataFrame(imputer.transform(sample[features]), columns=features)
     
-    pred_price = float(np.exp(model.predict(X_sample)[0]))
+    pred_price = float(np.exp(model_lr.predict(X_sample)[0]))
     real_price = float(sample['price'].values[0])
     diff = abs(real_price - pred_price)
     error_pct = (diff / real_price) * 100
 
-    # Hiển thị 3 thẻ chỉ số nổi bật
+    # Xác định phân khúc K-means cho mẫu Test
+    sample_cluster_input = pd.DataFrame([[
+        pred_price, sample['sqft_living'].values[0], sample['grade'].values[0],
+        sample['house_age'].values[0], sample['bedrooms'].values[0], sample['bathrooms'].values[0]
+    ]], columns=cluster_cols)
+    cid = int(kmeans.predict(scaler.transform(sample_cluster_input))[0])
+    seg_name, seg_avg = cluster_labels[cid]
+
     col1, col2, col3 = st.columns(3)
     col1.metric("💰 Giá bán THỰC TẾ (File Test)", f"${real_price:,.2f} USD")
-    col2.metric("🤖 Giá bán DỰ ĐOÁN (Mô hình)", f"${pred_price:,.2f} USD")
+    col2.metric("🤖 Giá bán DỰ ĐOÁN (Linear Regression)", f"${pred_price:,.2f} USD")
     col3.metric("📉 Chênh lệch & Sai số", f"${diff:,.2f} USD", f"{error_pct:.2f}%", delta_color="inverse")
 
-    # Hiển thị bảng thông số chi tiết của căn nhà đang chọn
+    st.info(f"🏷️ **Xếp loại phân khúc (K-Means):** Căn nhà thuộc **{seg_name}** (Mức giá trung bình phân khúc này: **${seg_avg:,.0f} USD**)")
+
     sqft_liv_real = np.expm1(sample['sqft_living'].values[0])
     sqft_lot_real = np.expm1(sample['sqft_lot'].values[0])
     
@@ -94,7 +117,7 @@ with tab1:
 
 # ================= TAB 2: NHẬP DỮ LIỆU MỚI =================
 with tab2:
-    st.subheader("Nhập thông số thực tế của căn nhà mới để dự đoán giá")
+    st.subheader("Nhập thông số căn nhà để định giá & nhận diện phân khúc thị trường")
     
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -121,7 +144,7 @@ with tab2:
         sale_year = st.number_input("Năm giao dịch", min_value=2014, max_value=2026, value=2014)
         sale_month = st.slider("Tháng giao dịch", 1, 12, 6)
 
-    if st.button("🚀 DỰ ĐOÁN GIÁ NHÀ NGAY", type="primary", use_container_width=True):
+    if st.button("🚀 ĐỊNH GIÁ & PHÂN LOẠI PHÂN KHÚC", type="primary", use_container_width=True):
         sale_days = (pd.Timestamp(year=int(sale_year), month=int(sale_month), day=15) - pd.Timestamp("2014-05-01")).days
         house_age = max(0, int(sale_year) - int(yr_built))
         last_update_age = house_age if renovated == 0 else max(0, house_age // 2)
@@ -147,6 +170,15 @@ with tab2:
 
         input_df = pd.DataFrame([row])[features]
         input_imputed = pd.DataFrame(imputer.transform(input_df), columns=features)
-        pred_price = float(np.exp(model.predict(input_imputed)[0]))
-        
-        st.success(f"### 🎉 GIÁ NHÀ DỰ ĐOÁN: **${pred_price:,.2f} USD**")
+        pred_price = float(np.exp(model_lr.predict(input_imputed)[0]))
+
+        # Phân cụm K-means cho căn nhà mới
+        new_cluster_input = pd.DataFrame([[
+            pred_price, np.log1p(sqft_living), grade, house_age, bedrooms, bathrooms
+        ]], columns=cluster_cols)
+        cid = int(kmeans.predict(scaler.transform(new_cluster_input))[0])
+        seg_name, seg_avg = cluster_labels[cid]
+
+        r1, r2 = st.columns(2)
+        r1.success(f"### 💰 GIÁ DỰ ĐOÁN: **${pred_price:,.2f} USD**")
+        r2.info(f"### 🏷️ PHÂN KHÚC: **{seg_name}**\n*(Giá TB phân khúc: ${seg_avg:,.0f} USD)*")

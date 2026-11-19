@@ -101,20 +101,21 @@ with tab1:
 
     st.info(f"🏷️ **Kết quả Phân cụm K-Means (Mục 4.2):** {cluster_names[cid]}")
 
-    st.markdown("**Toàn bộ 28 giá trị thuộc tính đầu vào (X) của mẫu đang chọn trong File Test:**")
+    st.markdown("**Toàn bộ 28 giá trị thuộc tính đầu vào (X) của mẫu đang chọn trong File Test (giữ nguyên giá trị đã biến đổi log):**")
     st.dataframe(sample[features], use_container_width=True)
 
-# ================= TAB 2: NHẬP ĐẦY ĐỦ 28 BIẾN X =================
+# ================= TAB 2: NHẬP ĐẦY ĐỦ 28 BIẾN X (DẠNG SỐ THẬP PHÂN LOG KHỚP DỮ LIỆU) =================
 with tab2:
-    st.subheader("Nhập đầy đủ 28 thuộc tính đầu vào (X) khớp Bảng 3.4.1 trong Báo cáo")
+    st.subheader("Nhập đầy đủ 28 thuộc tính đầu vào (X) khớp Bảng 3.4.1 & Dữ liệu đã tiền xử lý")
+    st.caption("Lưu ý: Các thuộc tính diện tích (sqft_living, sqft_lot, sqft_basement, sqft_living15, sqft_lot15) sử dụng giá trị thập phân đã biến đổi log1p giống hệt trong tập dữ liệu huấn luyện.")
     
     c1, c2, c3, c4 = st.columns(4)
     
     # Cột 1: 7 thuộc tính (1 -> 7)
     with c1:
         st.markdown("**Nhóm 1: Diện tích & Cấu trúc (1–7)**")
-        sqft_living = st.number_input("1. sqft_living (DT sử dụng - sqft)", min_value=100, value=1910, step=50)
-        sqft_lot = st.number_input("2. sqft_lot (DT đất - sqft)", min_value=200, value=7620, step=100)
+        sqft_living = st.number_input("1. sqft_living (log)", min_value=0.0, value=7.555382, format="%.6f")
+        sqft_lot = st.number_input("2. sqft_lot (log)", min_value=0.0, value=8.936035, format="%.6f")
         bedrooms = st.number_input("3. bedrooms (Số phòng ngủ)", min_value=1, max_value=15, value=3, step=1)
         bathrooms = st.number_input("4. bathrooms (Số phòng tắm)", min_value=0.5, max_value=10.0, value=2.25, step=0.25)
         floors = st.number_input("5. floors (Số tầng)", min_value=1.0, max_value=4.0, value=1.5, step=0.5)
@@ -126,7 +127,7 @@ with tab2:
         st.markdown("**Nhóm 2: Chất lượng & Vị trí (8–14)**")
         condition = st.slider("8. condition (Tình trạng 1–5)", 1, 5, 3)
         grade = st.slider("9. grade (Chất lượng xây 1–13)", 1, 13, 7)
-        sqft_basement = st.number_input("10. sqft_basement (DT tầng hầm)", min_value=0, value=0, step=50)
+        sqft_basement = st.number_input("10. sqft_basement (log)", min_value=0.0, value=0.0, format="%.6f")
         yr_built = st.number_input("11. yr_built (Năm xây dựng)", min_value=1900, max_value=2026, value=1975, step=1)
         zipcode = st.number_input("12. zipcode (Mã bưu chính)", value=98065, step=1)
         lat = st.number_input("13. lat (Vĩ độ)", value=47.5714, format="%.4f")
@@ -135,8 +136,8 @@ with tab2:
     # Cột 3: 7 thuộc tính (15 -> 21)
     with c3:
         st.markdown("**Nhóm 3: Lân cận & Thời gian (15–21)**")
-        sqft_living15 = st.number_input("15. sqft_living15 (DT nhà lân cận)", min_value=100, value=1840, step=50)
-        sqft_lot15 = st.number_input("16. sqft_lot15 (DT đất lân cận)", min_value=200, value=7620, step=100)
+        sqft_living15 = st.number_input("15. sqft_living15 (log)", min_value=0.0, value=7.518064, format="%.6f")
+        sqft_lot15 = st.number_input("16. sqft_lot15 (log)", min_value=0.0, value=8.938663, format="%.6f")
         sale_year = st.number_input("17. sale_year (Năm bán)", min_value=2014, max_value=2026, value=2014, step=1)
         sale_month = st.slider("18. sale_month (Tháng bán)", 1, 12, 6)
         sale_days = st.number_input("19. sale_days (Số ngày từ 01/05/2014)", min_value=0, value=168, step=1)
@@ -148,16 +149,17 @@ with tab2:
         st.markdown("**Nhóm 4: Đặc trưng dẫn xuất (22–28)**")
         last_update_age = st.number_input("22. last_update_age (Tuổi từ lần sửa cuối)", min_value=0, value=37, step=1)
         has_basement = st.selectbox("23. has_basement (Có tầng hầm 0/1)", options=[0, 1], index=0)
-        dist_center = st.number_input("24. dist_center (Khoảng cách TT - km)", min_value=0.0, value=16.51, format="%.2f")
-        total_rooms = st.number_input("25. total_rooms (Tổng số phòng)", min_value=1.0, value=5.25, step=0.25)
-        living_lot_ratio = st.number_input("26. living_lot_ratio (Tỷ lệ nhà/đất)", min_value=0.0, value=0.25, format="%.3f")
-        living_vs_nbr = st.number_input("27. living_vs_nbr (So sánh DT nhà)", min_value=0.0, value=1.00, format="%.3f")
-        lot_vs_nbr = st.number_input("28. lot_vs_nbr (So sánh DT đất)", min_value=0.0, value=1.00, format="%.3f")
+        dist_center = st.number_input("24. dist_center (Khoảng cách TT - km)", min_value=0.0, value=16.514052, format="%.6f")
+        total_rooms = st.number_input("25. total_rooms (Tổng số phòng)", min_value=1.0, value=5.0, step=0.25)
+        living_lot_ratio = st.number_input("26. living_lot_ratio (Tỷ lệ nhà/đất)", min_value=0.0, value=0.248390, format="%.6f")
+        living_vs_nbr = st.number_input("27. living_vs_nbr (So sánh DT nhà)", min_value=0.0, value=1.0, format="%.6f")
+        lot_vs_nbr = st.number_input("28. lot_vs_nbr (So sánh DT đất)", min_value=0.0, value=1.0, format="%.6f")
 
     if st.button("🚀 DỰ ĐOÁN GIÁ NHÀ & PHÂN CỤM (ĐỦ 28 BIẾN X)", type="primary", use_container_width=True):
+        # Đưa trực tiếp các giá trị đã biến đổi log vào mô hình (không log1p lại)
         row = {
-            'sqft_living': np.log1p(sqft_living),
-            'sqft_lot': np.log1p(sqft_lot),
+            'sqft_living': sqft_living,
+            'sqft_lot': sqft_lot,
             'bedrooms': bedrooms,
             'bathrooms': bathrooms,
             'floors': floors,
@@ -165,13 +167,13 @@ with tab2:
             'view': view,
             'condition': condition,
             'grade': grade,
-            'sqft_basement': np.log1p(sqft_basement),
+            'sqft_basement': sqft_basement,
             'yr_built': yr_built,
             'zipcode': zipcode,
             'lat': lat,
             'long': long,
-            'sqft_living15': np.log1p(sqft_living15),
-            'sqft_lot15': np.log1p(sqft_lot15),
+            'sqft_living15': sqft_living15,
+            'sqft_lot15': sqft_lot15,
             'sale_year': sale_year,
             'sale_month': sale_month,
             'sale_days': sale_days,
